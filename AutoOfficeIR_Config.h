@@ -22,4 +22,8 @@ IPAddress	 wifiDNS2(    208,  67, 220, 220 );							// OpenDNS 2
 // Port to run the wifi server on.
 int		 serverPort = 8182;
 
+const char  *webhooksURL  = "http://192.168.1.231:51931";               // IP and port.  If NULL, nothing is sent
+const char  *accessoryId  = "autoOfficeIR";                             // accessoryId to identify this device to homebridge-httpWebhooks
+
+
 #endif

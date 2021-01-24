@@ -15,6 +15,11 @@
 // Wifi code is a mix of the AutoOffice-ESP8266 code and some simplfiied code from other
 //  sources.  Note that on the ESP32, the web server can't be launched until after the
 //  wifi is connected or the device will crash on startup.
+//
+// Build Settings
+//  Board:  ESP32 Dev Module (probably any module will work)
+//  All other settings at default
+// May need to hold down the 'boot" button on the board to get it to conenct for programming.
 
 #include "ESPRotary.h"
 #include "IRremote.h"
@@ -261,6 +266,32 @@ void testButtonReleased( uint8_t pinIn ) {
 	Serial.printf( "Test button released\n" );
 }
 
+// Called to let the WebHooks client know that our state (specifically, the "TVs on" state) has updated.
+void UpdateWebhooks(void) {
+    // Report to WebHooks
+    String url = String( webhooksURL) + "/?accessoryId=" + String( accessoryId ) + "&state=" + String( tvsAreOn ? "true" : "false" );
+    Serial.print( "Updating HTTPWebhooks with new state of " );
+    Serial.print( tvsAreOn ? "true" : "false" );
+    Serial.print( " at " );
+    Serial.println( url );
+    
+    HTTPClient  http;
+    http.begin( url );
+    int error = http.sendRequest( "PUT" );
+    
+    if( error < 0 ) {
+        Serial.print(   " - HTTP PUT request failed:  " );
+        Serial.println( http.errorToString( error ) );
+    } else {
+        Serial.print(   " - HTTP response:  " );
+        Serial.println( error );
+        Serial.println( " ------------------------------ " );
+        Serial.println( http.getString() );
+        Serial.println( " ------------------------------ " );
+    }
+}
+
+
 // Toggle the state of the TVs.
 void TurnOnTVs( bool state ) {
     // Discrete
@@ -284,6 +315,9 @@ void TurnOnTVs( bool state ) {
     // Toggle
 //  irsend.sendSAMSUNG(0xE0E040BF, 32);
 //	irsend.sendRaw( samsungPowerCode,  sizeof( samsungPowerCode )  / sizeof( samsungPowerCode[0]  ), 38 );
+
+    // Report to WebHooks
+    UpdateWebhooks();
 }
 
 // Web Server
