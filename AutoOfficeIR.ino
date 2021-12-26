@@ -62,7 +62,7 @@ ESPRotary encoder = ESPRotary( PIN_ENCODER_A, PIN_ENCODER_B, 4 );   // 4 pulses 
 // IR sender instance
 IRsend irsend;
 
-// Raw Samsung codes
+// Raw Samsung power codes
 unsigned int samsungOnCode[] = {
     4523,4523,579,1683,579,1683,579,1683,579,552,579,552,579,552,579,552,579,552,579,
     1683,579,1683,579,1683,579,552,579,552,579,552,579,552,579,552,579,1683,579,552,
@@ -82,6 +82,7 @@ unsigned int samsungPowerCode[] = {
 	1550,650,1600,650,1550,650,1550,700,1550,650,1550,650
 };
 
+// Rawm Samsung HDMI Codes
 unsigned int samsungHDMI1Code[] = {
 	4523,4523,552,1683,552,1683,552,1683,552,552,552,552,552,552,552,552,552,552,552,1683,552,1683,552,1683,552,552,552,
 	552,552,552,552,552,552,552,552,1683,552,552,552,552,552,1683,552,552,552,1683,552,1683,552,1683,552,552,552,1683,
@@ -106,16 +107,50 @@ unsigned int samsungHDMI4Code[] = {
 	579,552,1709,552,1709,552,1709,552,579,552,579,552,4399
 };
 
-unsigned int * HDMICodeFromPin( int pin ) {
-	switch( pin ) {
-		case PIN_INPUT_HDMI1:	return samsungHDMI1Code;
-		case PIN_INPUT_HDMI2:	return samsungHDMI2Code;
-		case PIN_INPUT_HDMI3:	return samsungHDMI3Code;
-		case PIN_INPUT_HDMI4:	return samsungHDMI4Code;
+// Raw Yamaha volume codes
+unsigned int yamahaVolUpCode[] = {
+	8777,4646,568,568,568,1704,568,568,568,1704,568,1704,568,1704,568,1704,568,568,568,1704,568,568,568,1704,568,568,568,568,
+	568,568,568,568,568,1704,568,568,568,1704,568,568,568,1704,568,1704,568,568,568,568,568,568,568,1704,568,568,568,1704,568,
+	568,568,568,568,1704,568,1704,568,1704,568,3970
+};
+
+unsigned int yamahaVolDownCode[] = {
+	8777,4646,568,568,568,1704,568,568,568,1704,568,1704,568,1704,568,1704,568,568,568,1704,568,568,568,1704,568,568,568,568,
+	568,568,568,568,568,1704,568,1704,568,1704,568,568,568,1704,568,1704,568,568,568,568,568,568,568,568,568,568,568,1704,568,
+	568,568,568,568,1704,568,1704,568,1704,568,3970
+};
+
+// NEC Yamaha scene 1-4 codes
+unsigned int yamahaHDMICodes[4] = { 
+	0x5EA100FE, 0x5EA1C03E, 0x5EA1609E, 0x5EA1906E
+};
+
+#define RECIEVER_SONY     0
+#define RECIEVER_YAHAMA   1
+int recieverTypeForVolume = RECIEVER_YAHAMA;
+
+static unsigned int *samsungHDMICodes[4]   = { samsungHDMI1Code, samsungHDMI2Code, samsungHDMI3Code, samsungHDMI4Code };
+static int  samsungHDMILengths[4] = { 0, 0, 0, 0 };
+
+// Get the Samsung HDMI code.  Code length is indirectly returned.
+unsigned int * SamsungHDMICodeFromPin( int pin, int *len ) {
+	// Initialize lengths, if needed
+	if( samsungHDMILengths == 0 ) {
+		samsungHDMILengths[0] = sizeof( samsungHDMI1Code ) / sizeof( samsungHDMI1Code[0] );
+		samsungHDMILengths[1] = sizeof( samsungHDMI2Code ) / sizeof( samsungHDMI2Code[0] );
+		samsungHDMILengths[2] = sizeof( samsungHDMI3Code ) / sizeof( samsungHDMI3Code[0] );
+		samsungHDMILengths[3] = sizeof( samsungHDMI4Code ) / sizeof( samsungHDMI4Code[0] );
 	}
 
-    Serial.printf( "ERROR:  invalid pin %d for HDMICodeFromPin()\n", pin );
-	return NULL;
+	auto index = HDMIButtonFromPin( pin ) - 1;
+	if( index == -1 ) {
+		Serial.printf( "ERROR:  invalid pin %d for SamsungHDMICodeFromPin()\n", pin );
+		return NULL;
+	}
+
+	// Samsung code
+	*len = samsungHDMILengths[ index ];
+	return samsungHDMICodes[  index ]; 
 }
 
 // Input debouncing
@@ -145,7 +180,7 @@ void setup() {
     pinMode( PIN_MONITOR_IR_LED, OUTPUT );
 
     digitalWrite( PIN_MAIN_IR_LED,    HIGH );
-    digitalWrite( PIN_MONITOR_IR_LED, LOW  );		// LOW enables the tranisstor for the monitor
+    digitalWrite( PIN_MONITOR_IR_LED, LOW  );		// LOW enables the transistor for the monitor
 
 	// Encoder Debouncing
     debounceButton.setup( PIN_ENCODER_BUTTON, BUTTON_DEBOUNCE_DELAY, InputDebounce::PIM_INT_PULL_UP_RES );
@@ -167,7 +202,7 @@ void setup() {
     debounceTest.setup( PIN_INPUT_TEST, BUTTON_DEBOUNCE_DELAY, InputDebounce::PIM_INT_PULL_UP_RES );
     debounceTest.registerCallbacks( testButtonPressed, testButtonReleased, NULL, NULL );
 
-    // Set up the web serevr
+    // Set up the web server
     SetupWebServer();
 }
 
@@ -176,6 +211,8 @@ void setup() {
 //  Each code has to be sent 3 times with a small delay between them.
 //  If we sent the last code very recently in the same direction, we
 //  send the repeat code instead.
+
+// For the Yamaha receiver, we only send each code once.
 
 // Repeat codes aren't working, though, so we've disabled them.
 #define SONY_REPEAT
@@ -193,12 +230,28 @@ void encoderDir( ESPRotary &r ) {
 
 	} else {
    #endif
-		// New direction or more time has passed; send new codes
-	    Serial.printf( "Dir:  %d, %s", isDirDown? 1 : -1,  isDirDown ? "CCW (volume down)" : "CW (volume up)" );
+
+	// New direction or more time has passed; send new codes
+	Serial.printf( "Dir:  %d, %s", isDirDown? 1 : -1,  isDirDown ? "CCW (volume down)" : "CW (volume up)" );
+	if( recieverTypeForVolume == RECIEVER_YAHAMA ) {
+		if( isDirDown ) {
+			// Volume down
+			irsend.sendRaw( yamahaVolDownCode, sizeof( yamahaVolDownCode ) / sizeof( yamahaVolDownCode[0] ), 38 );
+
+		} else {
+			// Volume up
+			irsend.sendRaw( yamahaVolUpCode, sizeof( yamahaVolUpCode ) / sizeof( yamahaVolUpCode[0] ), 38 );
+		}
+
+	    Serial.print( " sent\n" );
+
+	} else if( recieverTypeForVolume == RECIEVER_SONY ) {
+		// Sony
 		for( int i=0; i < 3; i ++ ) {
 			if( isDirDown ) {
 				// Volume down
 				irsend.sendSony( 0x640C, 15 );
+
 			} else {
 				// Volume up
 				irsend.sendSony( 0x240C, 15 );
@@ -207,10 +260,11 @@ void encoderDir( ESPRotary &r ) {
 			if( i != 2 )
 				delay( 5 );
 
-		    Serial.print( "." );
+			Serial.print( "." );
 		}
 
 	    Serial.print( " sent\n" );
+	}
 
    #ifdef SONY_REPEAT )
 		lastDirWasDown = isDirDown;
@@ -237,22 +291,42 @@ void buttonReleased( uint8_t pinIn ) {
 }
 
 // HDMI Button
-//  On button press after debouncing
+//  On button press after debouncing.  Store the time the button went down.
+static int hdmiButtonDownAt = 0;													// When the button went down.  We could use separate tests for each button, but you shouldn't be holding two buttons at once.
+#define    HDMI_BUTTON_HOLD_PERIOD   1000											// How long to wait before doing the alternate (Samsung) input codes instead of the Yamaha codes
 void hdmiButtonPressed( uint8_t pinIn ) {
-	unsigned int *hdmiCode = HDMICodeFromPin( pinIn );
-	if( hdmiCode == NULL )
-		return;
-
-	digitalWrite( PIN_MONITOR_IR_LED, HIGH );			// Disable the Windows monitor so we only change intputs on the Mac mini one
-    irsend.sendRaw( hdmiCode,  sizeof( samsungOnCode )  / sizeof( samsungOnCode[0]  ), 38 );
-	digitalWrite( PIN_MONITOR_IR_LED, LOW  );			// Turn back on the Windows monitor
-
-	Serial.printf( "HDMI %d preseed\; switching to input\n", HDMIButtonFromPin( pinIn ) );
+	hdmiButtonDownAt = millis();
 }
 
 //  On release after debouncing
 void hdmiButtonReleased( uint8_t pinIn ) {
-//    Serial.printf( "HDMI Button:  Up\n" );
+	bool wasHeld = (millis() - hdmiButtonDownAt) > HDMI_BUTTON_HOLD_PERIOD;
+	if( !wasHeld ) {
+	}
+
+	if( wasHeld ) {
+		// Held; get the Samsung IR code for this input
+		int  hdmiCodeLen;
+		auto hdmiCode = SamsungHDMICodeFromPin( pinIn, &hdmiCodeLen );
+		if( hdmiCode == NULL )
+			return;
+
+		// Send this input's code
+		digitalWrite( PIN_MONITOR_IR_LED, HIGH );									// Disable the Windows monitor so we only change intputs on the Mac mini one
+		irsend.sendRaw( hdmiCode, hdmiCodeLen, 38 );
+		digitalWrite( PIN_MONITOR_IR_LED, LOW  );									// Turn back on the Windows monitor
+
+	} else {
+		// No theld; first switch to Samsung HDMI 4, since that's where the Yamaha reciever is
+		digitalWrite( PIN_MONITOR_IR_LED, HIGH );									// Disable the Windows monitor so we only change intputs on the Mac mini one
+		irsend.sendRaw( samsungHDMI4Code, sizeof( samsungHDMI4Code ) / sizeof( samsungHDMI4Code[0]  ), 38 );
+		digitalWrite( PIN_MONITOR_IR_LED, LOW  );									// Turn back on the Windows monitor
+
+		// Send the input's code to the reciever
+		irsend.sendNEC( yamahaHDMICodes[ HDMIButtonFromPin( pinIn ) - 1 ], 32 );	// -1 for index
+	}
+
+	Serial.printf( "HDMI %d %s; switching to input on %s\n", HDMIButtonFromPin( pinIn ), wasHeld ? "held" : "pressed", wasHeld ? "Samsung TV" : "Yamaha reciever" );
 }
 
 // Test Button
